@@ -1,0 +1,87 @@
+{
+  "expo": {
+    "name": "Loop",
+    "slug": "loop-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A1F16",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A1F16"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ostinatoloop.loop",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Loop needs your microphone to let you speak in live audio rooms.",
+        "NSCameraUsageDescription": "Loop uses your camera for profile photos.",
+        "UIBackgroundModes": ["audio", "fetch", "remote-notification"],
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A1F16"
+      },
+      "package": "com.ostinatoloop.loop",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.0",
+            "useFrameworks": "static"
+          },
+          "android": {
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "minSdkVersion": 24
+          }
+        }
+      ],
+      [
+        "@livekit/react-native-webrtc",
+        {
+          "cameraPermission": "Loop uses your camera for profile photos.",
+          "microphonePermission": "Loop needs your microphone for live audio rooms."
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#00FF88",
+          "defaultChannel": "loop-rooms"
+        }
+      ]
+    ],
+    "scheme": "loop",
+    "extra": {
+      "eas": {
+        "projectId": "loop-mobile"
+      }
+    },
+    "newArchEnabled": true
+  }
+}
