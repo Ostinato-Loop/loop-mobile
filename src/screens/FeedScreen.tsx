@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, RefreshControl, ScrollView,
@@ -10,9 +10,12 @@ import { Bell, Radio } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { LoopLogo } from '@/components/LoopLogo';
 import { RoomCard } from '@/components/RoomCard';
+import { PresenceStrip } from '@/components/PresenceStrip';
 import { useRooms, type Room, type RoomCategory } from '@/hooks/useRooms';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useLiveRoomCounts } from '@/hooks/useLiveRoomCounts';
+import { usePresence } from '@/hooks/usePresence';
+import { useAuth } from '@/hooks/useAuth';
 import type { RootStackParamList } from '@/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -31,19 +34,17 @@ const CATEGORIES: { label: string; value: RoomCategory | '' }[] = [
 export default function FeedScreen() {
   const nav    = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
+  const { user, profile } = useAuth();
   const { unread } = useNotifications();
 
   const [activeCategory, setActiveCategory] = useState<RoomCategory | ''>('');
   const { rooms, loading, refreshing, refresh } = useRooms({ category: activeCategory });
 
-  // ── Live counts from Supabase Realtime ────────────────────────────
+  // ── Live listener counts ────────────────────────────────────────────
   const { counts, seedCounts, deltaFor } = useLiveRoomCounts();
-
-  // Track which rooms just flipped is_live=true for ripple animation
   const [newlyLive, setNewlyLive] = useState<Set<string>>(new Set());
-  const prevCountsRef = React.useRef<typeof counts>(new Map());
+  const prevCountsRef = useRef<typeof counts>(new Map());
 
-  // Seed initial counts from the HTTP response once it loads
   useEffect(() => {
     if (rooms.length === 0) return;
     seedCounts(rooms.map(r => ({
@@ -53,48 +54,67 @@ export default function FeedScreen() {
     })));
   }, [rooms, seedCounts]);
 
-  // Detect rooms that just went live via Realtime
   useEffect(() => {
     const justLive = new Set<string>();
     counts.forEach((val, id) => {
       const prev = prevCountsRef.current.get(id);
-      if (val.isLive && prev && !prev.isLive) {
-        justLive.add(id);
-      }
+      if (val.isLive && prev && !prev.isLive) justLive.add(id);
     });
     prevCountsRef.current = counts;
-
-    if (justLive.size > 0) {
-      setNewlyLive(justLive);
-      // Clear the ripple flags after 2 s
-      const timer = setTimeout(() => setNewlyLive(new Set()), 2000);
-      return () => clearTimeout(timer);
-    }
+    if (justLive.size === 0) return;
+    setNewlyLive(justLive);
+    const t = setTimeout(() => setNewlyLive(new Set()), 2000);
+    return () => clearTimeout(t);
   }, [counts]);
 
+  // ── Presence ────────────────────────────────────────────────────────
+  const selfPayload = useMemo(() => {
+    if (!user?.id) return null;
+    return {
+      user_id:      user.id,
+      display_name: profile?.display_name ?? profile?.username ?? null,
+      avatar_url:   profile?.avatar_url ?? null,
+      status:       'browsing' as const,
+    };
+  }, [user?.id, profile?.display_name, profile?.username, profile?.avatar_url]);
+
+  const { online } = usePresence(selfPayload);
+
+  // ── Navigation ───────────────────────────────────────────────────────
   const handleRoomPress = useCallback((room: Room) => {
     nav.navigate('Room', { roomId: room.id });
   }, [nav]);
 
-  const ListHeader = (
+  const handlePresenceRoomPress = useCallback((roomId: string) => {
+    nav.navigate('Room', { roomId });
+  }, [nav]);
+
+  // ── List header (memoised so category changes don't re-mount strip) ─
+  const ListHeader = useMemo(() => (
     <>
       {/* ── Top bar ── */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <LoopLogo size={26} />
-        <View style={styles.headerRight}>
-          <TouchableOpacity
-            style={styles.iconBtn}
-            onPress={() => nav.navigate('Notifications')}
-          >
-            <Bell size={22} color={Colors.foreground} />
-            {unread > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>{unread > 9 ? '9+' : unread}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.bellBtn}
+          onPress={() => nav.navigate('Notifications')}
+        >
+          <Bell size={22} color={Colors.foreground} />
+          {unread > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unread > 9 ? '9+' : unread}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
+
+      {/* ── Who's online strip ── */}
+      {online.length > 0 && (
+        <PresenceStrip
+          users={online}
+          onRoomPress={handlePresenceRoomPress}
+        />
+      )}
 
       {/* ── Category filter chips ── */}
       <ScrollView
@@ -128,7 +148,8 @@ export default function FeedScreen() {
         </View>
       )}
     </>
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [insets.top, unread, online, activeCategory, rooms.length, loading]);
 
   return (
     <View style={styles.root}>
@@ -136,9 +157,9 @@ export default function FeedScreen() {
         data={rooms}
         keyExtractor={r => r.id}
         renderItem={({ item }) => {
-          const live     = counts.get(item.id);
-          const delta    = deltaFor(item.id);
-          const ripple   = newlyLive.has(item.id);
+          const live   = counts.get(item.id);
+          const delta  = deltaFor(item.id);
+          const ripple = newlyLive.has(item.id);
           return (
             <RoomCard
               room={item}
@@ -160,7 +181,6 @@ export default function FeedScreen() {
           />
         }
         showsVerticalScrollIndicator={false}
-        // Prevent unnecessary re-renders of off-screen cards
         removeClippedSubviews
         windowSize={5}
       />
@@ -171,11 +191,13 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
   },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconBtn: {
+  bellBtn: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: Colors.surface,
     alignItems: 'center', justifyContent: 'center',
@@ -188,18 +210,18 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
   },
   notifBadgeText: { color: Colors.foreground, fontSize: 10, fontWeight: '700' },
-  chipScroll:  { marginBottom: 8 },
-  chipContent: { paddingHorizontal: 16, gap: 8 },
+  chipScroll:     { marginBottom: 8, marginTop: 10 },
+  chipContent:    { paddingHorizontal: 16, gap: 8 },
   chip: {
     paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
     backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
     minHeight: 44, alignItems: 'center', justifyContent: 'center',
   },
-  chipActive:      { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  chipText:        { color: Colors.mutedFg, fontSize: 14, fontWeight: '500' },
-  chipTextActive:  { color: Colors.primaryFg, fontWeight: '700' },
-  list:            { paddingBottom: 24 },
-  empty:           { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
-  emptyTitle:      { color: Colors.foreground, fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'center' },
-  emptyBody:       { color: Colors.mutedFg, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  chipActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  chipText:       { color: Colors.mutedFg, fontSize: 14, fontWeight: '500' },
+  chipTextActive: { color: Colors.primaryFg, fontWeight: '700' },
+  list:           { paddingBottom: 24 },
+  empty:          { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
+  emptyTitle:     { color: Colors.foreground, fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'center' },
+  emptyBody:      { color: Colors.mutedFg, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
 });
