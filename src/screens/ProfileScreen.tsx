@@ -20,7 +20,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Settings, Bell, BadgeCheck, MapPin,
   LogOut, ChevronRight, Globe2, Shield,
-  Pencil, Radio, Mic,
+  Pencil, Radio, Mic, Coins,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, avatarGradient, initials } from '@/constants/colors';
@@ -216,6 +216,17 @@ export default function ProfileScreen() {
     <>
       {/* Settings menu */}
       <View style={styles.menu}>
+        {/* Earnings — shown for creators */}
+        {profile?.is_creator && (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => nav.navigate('Earnings')}
+          >
+            <Coins size={20} color={Colors.primary} />
+            <Text style={[styles.menuLabel, { color: Colors.primary }]}>Earnings & Payouts</Text>
+            <ChevronRight size={16} color={Colors.primary} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={styles.menuItem}
           onPress={() => nav.navigate('Notifications')}

@@ -49,4 +49,21 @@ export const ENDPOINTS = {
   feedback: {
     submit:         `${API_BASE}/api/feedback`,
   },
+  earnings: {
+    summary:        `${API_BASE}/api/earnings/summary`,
+    rooms:          `${API_BASE}/api/earnings/rooms`,
+    withdrawals:    `${API_BASE}/api/earnings/withdrawals`,
+    withdraw:       `${API_BASE}/api/earnings/withdraw`,
+  },
 } as const;
+
+/** Currency codes the payout API supports */
+export const PAYOUT_CURRENCIES = [
+  { code: 'NGN', label: '🇳🇬  Naira (NGN)',    method: 'Opay / MTN MoMo' },
+  { code: 'KES', label: '🇰🇪  Shilling (KES)', method: 'M-Pesa' },
+  { code: 'GHS', label: '🇬🇭  Cedis (GHS)',    method: 'MTN MoMo' },
+  { code: 'ZAR', label: '🇿🇦  Rand (ZAR)',     method: 'Bank transfer' },
+  { code: 'USD', label: '🇺🇸  USD',            method: 'Bank / Paystack' },
+] as const;
+
+export type PayoutCurrency = typeof PAYOUT_CURRENCIES[number]['code'];

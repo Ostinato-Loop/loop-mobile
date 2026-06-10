@@ -23,12 +23,14 @@ import SettingsScreen      from '@/screens/SettingsScreen';
 import LoginScreen         from '@/screens/LoginScreen';
 import OtpScreen           from '@/screens/OtpScreen';
 import OnboardingScreen    from '@/screens/OnboardingScreen';
+import EarningsScreen      from '@/screens/EarningsScreen';
 
 export type RootStackParamList = {
   Main:          undefined;
   Room:          { roomId: string };
   Notifications: undefined;
   Settings:      undefined;
+  Earnings:      undefined;
   Login:         undefined;
   Otp:           { phone: string };
   Onboarding:    undefined;
@@ -149,6 +151,7 @@ export function RootNavigator() {
               options={{ animation: 'slide_from_bottom', gestureDirection: 'vertical' }} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Settings"      component={SettingsScreen} />
+            <Stack.Screen name="Earnings"      component={EarningsScreen} />
             {/* Deep-link targets registered so the navigator can resolve them */}
             <Stack.Screen name="Thread"      component={MessagesScreen} />
             <Stack.Screen name="UserProfile" component={ProfileScreen} />
