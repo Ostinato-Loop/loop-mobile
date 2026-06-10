@@ -27,17 +27,23 @@ export type Room = {
   };
 };
 
-type RoomFilters = {
+export type RoomFilters = {
   category?: RoomCategory | '';
   live_only?: boolean;
+  trending?: boolean;
+  search?: string;
+  tags?: string[];
   limit?: number;
 };
 
 export function useRooms(filters: RoomFilters = {}) {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [rooms,      setRooms]      = useState<Room[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Stable serialisation so useCallback deps don't change on every render
+  const filterKey = JSON.stringify(filters);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -46,8 +52,13 @@ export function useRooms(filters: RoomFilters = {}) {
       const params = new URLSearchParams();
       if (filters.category) params.set('category', filters.category);
       if (filters.live_only) params.set('live_only', 'true');
-      if (filters.limit) params.set('limit', String(filters.limit));
-      const url = `${ENDPOINTS.rooms.list}?${params.toString()}`;
+      if (filters.trending)  params.set('trending', 'true');
+      if (filters.search)    params.set('search', filters.search);
+      if (filters.limit)     params.set('limit', String(filters.limit));
+      if (filters.tags?.length) {
+        filters.tags.forEach(t => params.append('tags[]', t));
+      }
+      const url  = `${ENDPOINTS.rooms.list}?${params.toString()}`;
       const data = await apiGet<{ rooms: Room[] }>(url);
       setRooms(data.rooms ?? []);
     } catch (err: any) {
@@ -56,9 +67,24 @@ export function useRooms(filters: RoomFilters = {}) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filters.category, filters.live_only, filters.limit]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   useEffect(() => { load(); }, [load]);
 
   return { rooms, loading, error, refreshing, refresh: () => load(true) };
+}
+
+/** Derive trending tags from a list of rooms (most frequent first) */
+export function trendingTagsFrom(rooms: Room[], maxTags = 12): string[] {
+  const freq = new Map<string, number>();
+  for (const room of rooms) {
+    for (const tag of room.tags ?? []) {
+      freq.set(tag, (freq.get(tag) ?? 0) + 1);
+    }
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxTags)
+    .map(([tag]) => tag);
 }
