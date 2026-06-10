@@ -1,5 +1,8 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import {
+  NavigationContainer,
+  useNavigationContainerRef,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -7,35 +10,40 @@ import { Home, Compass, Plus, MessageCircle, User } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
+import { useNotificationDeepLink } from '@/hooks/useNotificationDeepLink';
 
-import FeedScreen         from '@/screens/FeedScreen';
-import DiscoverScreen     from '@/screens/DiscoverScreen';
-import CreateRoomScreen   from '@/screens/CreateRoomScreen';
-import MessagesScreen     from '@/screens/MessagesScreen';
-import ProfileScreen      from '@/screens/ProfileScreen';
-import RoomScreen         from '@/screens/RoomScreen';
+import FeedScreen          from '@/screens/FeedScreen';
+import DiscoverScreen      from '@/screens/DiscoverScreen';
+import CreateRoomScreen    from '@/screens/CreateRoomScreen';
+import MessagesScreen      from '@/screens/MessagesScreen';
+import ProfileScreen       from '@/screens/ProfileScreen';
+import RoomScreen          from '@/screens/RoomScreen';
 import NotificationsScreen from '@/screens/NotificationsScreen';
-import SettingsScreen     from '@/screens/SettingsScreen';
-import LoginScreen        from '@/screens/LoginScreen';
-import OtpScreen          from '@/screens/OtpScreen';
-import OnboardingScreen   from '@/screens/OnboardingScreen';
+import SettingsScreen      from '@/screens/SettingsScreen';
+import LoginScreen         from '@/screens/LoginScreen';
+import OtpScreen           from '@/screens/OtpScreen';
+import OnboardingScreen    from '@/screens/OnboardingScreen';
 
 export type RootStackParamList = {
-  Main: undefined;
-  Room: { roomId: string };
+  Main:          undefined;
+  Room:          { roomId: string };
   Notifications: undefined;
-  Settings: undefined;
-  Login: undefined;
-  Otp: { phone: string };
-  Onboarding: undefined;
+  Settings:      undefined;
+  Login:         undefined;
+  Otp:           { phone: string };
+  Onboarding:    undefined;
+  /** Deep-link target: tapping a DM notification */
+  Thread:        { conversationId: string };
+  /** Deep-link target: tapping a new-follower notification */
+  UserProfile:   { userId: string };
 };
 
 export type TabParamList = {
-  Feed: undefined;
+  Feed:     undefined;
   Discover: undefined;
-  Create: undefined;
+  Create:   undefined;
   Messages: undefined;
-  Profile: undefined;
+  Profile:  undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -107,6 +115,12 @@ function TabNavigator() {
 export function RootNavigator() {
   const { user, profile, loading } = useAuth();
 
+  // Stable ref passed to NavigationContainer — never recreated between renders
+  const navRef = useNavigationContainerRef<RootStackParamList>();
+
+  // Wire up OneSignal deep-link handling for all app states
+  const { onNavigatorReady } = useNotificationDeepLink(navRef);
+
   if (loading) {
     return (
       <View style={styles.loader}>
@@ -116,7 +130,10 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={navRef}
+      onReady={onNavigatorReady}
+    >
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
         {!user ? (
           <>
@@ -132,6 +149,9 @@ export function RootNavigator() {
               options={{ animation: 'slide_from_bottom', gestureDirection: 'vertical' }} />
             <Stack.Screen name="Notifications" component={NotificationsScreen} />
             <Stack.Screen name="Settings"      component={SettingsScreen} />
+            {/* Deep-link targets registered so the navigator can resolve them */}
+            <Stack.Screen name="Thread"      component={MessagesScreen} />
+            <Stack.Screen name="UserProfile" component={ProfileScreen} />
           </>
         )}
       </Stack.Navigator>
