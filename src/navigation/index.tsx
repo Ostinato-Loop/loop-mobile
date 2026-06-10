@@ -124,6 +124,24 @@ export function RootNavigator() {
   // Wire up OneSignal deep-link handling for all app states
   const { onNavigatorReady } = useNotificationDeepLink(navRef);
 
+
+  // DEEPLINK-001 (2026-06-10): react-navigation linking config — handles loop:// URLs and
+  // universal links from loop.rald.cloud (rooms, notifications, profile, thread).
+  const linking = {
+    prefixes: ['loop://', 'https://loop.rald.cloud'],
+    config: {
+      screens: {
+        Main: '',
+        Room:          { path: 'rooms/:roomId' },
+        Notifications: 'notifications',
+        Settings:      'settings',
+        Thread:        { path: 'thread/:conversationId' },
+        UserProfile:   { path: 'profile/:userId' },
+        Earnings:      'earnings',
+      },
+    },
+  };
+
   if (loading) {
     return (
       <View style={styles.loader}>
@@ -135,6 +153,7 @@ export function RootNavigator() {
   return (
     <NavigationContainer
       ref={navRef}
+      linking={linking}
       onReady={onNavigatorReady}
     >
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
