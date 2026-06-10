@@ -24,6 +24,7 @@ import LoginScreen         from '@/screens/LoginScreen';
 import OtpScreen           from '@/screens/OtpScreen';
 import OnboardingScreen    from '@/screens/OnboardingScreen';
 import EarningsScreen      from '@/screens/EarningsScreen';
+import UserProfileScreen   from '@/screens/UserProfileScreen';
 
 export type RootStackParamList = {
   Main:          undefined;
@@ -154,7 +155,7 @@ export function RootNavigator() {
             <Stack.Screen name="Earnings"      component={EarningsScreen} />
             {/* Deep-link targets registered so the navigator can resolve them */}
             <Stack.Screen name="Thread"      component={MessagesScreen} />
-            <Stack.Screen name="UserProfile" component={ProfileScreen} />
+            <Stack.Screen name="UserProfile" component={UserProfileScreen} />
           </>
         )}
       </Stack.Navigator>
