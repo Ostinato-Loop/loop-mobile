@@ -1,3 +1,10 @@
+/**
+ * useAuth — authentication context
+ * PUSH-LINK-001 (2026-06-11): OneSignal login/logout wired to auth lifecycle
+ *   so the server can target push notifications to specific users by externalId.
+ *
+ * LILCKY STUDIO LIMITED
+ */
 import React, {
   createContext, useCallback, useContext,
   useEffect, useRef, useState, type ReactNode,
@@ -40,6 +47,37 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+// ── OneSignal helpers ────────────────────────────────────────────────────────
+// Lazy-require so the module error is contained when the native module
+// isn't linked (Expo Go managed workflow, unit tests, etc.).
+
+function getOneSignal(): { login(externalId: string): void; logout(): void } | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { OneSignal } = require('react-native-onesignal');
+    return OneSignal as { login(externalId: string): void; logout(): void };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * PUSH-LINK-001: Tell OneSignal which user is logged in.
+ * Called after successful OTP verification and on session restore.
+ * Without this, OneSignal can't match the device to externalIds in
+ * the server's notification targeting payload.
+ */
+function oneSignalLogin(userId: string) {
+  try { getOneSignal()?.login(userId); } catch { /* non-fatal */ }
+}
+
+/** Called on sign-out so the device stops receiving this user's notifications. */
+function oneSignalLogout() {
+  try { getOneSignal()?.logout(); } catch { /* non-fatal */ }
+}
+
+// ── Provider ────────────────────────────────────────────────────────────────
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<LoopUser | null>(null);
   const [profile, setProfile] = useState<LoopProfile | null>(null);
@@ -52,8 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const [token, stored] = await Promise.all([getToken(), getStoredUser()]);
         if (token && stored) {
-          setUser(stored as LoopUser);
+          const u = stored as LoopUser;
+          setUser(u);
           await fetchProfile(token);
+          // PUSH-LINK-001: re-link OneSignal on every app boot so the
+          // device stays associated even after app updates or reinstalls.
+          oneSignalLogin(u.id);
         }
       } finally {
         setLoading(false);
@@ -102,6 +144,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await setStoredUser(data.user as unknown as Record<string, unknown>);
     setUser(data.user);
     await fetchProfile(data.access_token);
+    // PUSH-LINK-001: link OneSignal device to this user immediately after login
+    oneSignalLogin(data.user.id);
     return { isNewUser: data.is_new_user ?? false };
   }, []);
 
@@ -126,6 +170,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await apiFetch(ENDPOINTS.auth.signout, { method: 'POST' });
     } catch { /* best-effort */ }
+    // PUSH-LINK-001: unlink device so this user stops receiving push on sign-out
+    oneSignalLogout();
     await clearAll();
     setUser(null);
     setProfile(null);

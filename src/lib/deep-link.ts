@@ -43,7 +43,8 @@ export function parseNotificationPayload(data: RawPayload): DeepLinkAction {
     case 'room_live':
     case 'hand_raise_approved':
     case 'hand_raise_request': {
-      const roomId = asString(data.room_id);
+      // Backend sends camelCase roomId; guard against legacy snake_case room_id too
+      const roomId = asString(data.roomId ?? data.room_id);
       if (!roomId) return { screen: 'noop' };
       return { screen: 'Room', params: { roomId } };
     }

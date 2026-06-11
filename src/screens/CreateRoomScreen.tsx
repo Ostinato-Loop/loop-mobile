@@ -27,6 +27,7 @@ import { Colors } from '@/constants/colors';
 import { apiPost } from '@/lib/api-client';
 import { ENDPOINTS } from '@/constants/api';
 import { GoLiveCountdown } from '@/components/GoLiveCountdown';
+import { useAuth } from '@/hooks/useAuth';
 import type { RootStackParamList } from '@/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -75,6 +76,7 @@ const LANGUAGES = [
 export default function CreateRoomScreen() {
   const nav    = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
 
   // Form state
   const [title,      setTitle]      = useState('');
@@ -128,8 +130,21 @@ export default function CreateRoomScreen() {
         language,
         visibility:  isPublic ? 'public' : 'followers',
       });
-      pendingRoomId.current = res.room.id;
+      const roomId = res.room.id;
+      pendingRoomId.current = roomId;
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // PUSH-LIVE-001: notify followers this room is live (fire-and-forget)
+      // Runs in background — never delays the countdown or navigation.
+      if (user?.id) {
+        apiPost(ENDPOINTS.push.roomLive, {
+          hostId:    user.id,
+          roomId,
+          roomTitle: title.trim(),
+          category,
+        }).catch(() => { /* non-fatal — push failure must not block go-live */ });
+      }
+
       setShowCountdown(true);
     } catch (e: any) {
       setError(e.message ?? 'Could not create room. Try again.');
