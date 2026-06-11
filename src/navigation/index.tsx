@@ -42,10 +42,12 @@ import OtpScreen           from '@/screens/OtpScreen';
 import OnboardingScreen    from '@/screens/OnboardingScreen';
 import EarningsScreen      from '@/screens/EarningsScreen';
 import UserProfileScreen   from '@/screens/UserProfileScreen';
+import RoomSummaryScreen   from '@/screens/RoomSummaryScreen';
 
 export type RootStackParamList = {
   Main:        undefined;
   Room:        { roomId: string };
+  RoomSummary: { roomId: string };
   Discover:    undefined;
   Settings:    undefined;
   Earnings:    undefined;
@@ -169,6 +171,7 @@ export function RootNavigator() {
           },
         },
         Room:        { path: 'rooms/:roomId' },
+        RoomSummary: { path: 'rooms/:roomId/summary' },
         Discover:    'discover',
         Settings:    'settings',
         Thread:      { path: 'thread/:conversationId' },
@@ -210,6 +213,8 @@ export function RootNavigator() {
             <Stack.Screen name="Earnings" component={EarningsScreen} />
             <Stack.Screen name="Thread"      component={MessagesScreen} />
             <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+            <Stack.Screen name="RoomSummary" component={RoomSummaryScreen}
+              options={{ animation: 'slide_from_bottom' }} />
           </>
         )}
       </Stack.Navigator>

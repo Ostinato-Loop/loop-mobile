@@ -12,6 +12,7 @@
  *
  *   room_live            → Navigate('Room', { roomId })
  *   room_ended           → (no-op — room is already closed)
+ *   room_summary         → Navigate('RoomSummary', { roomId })   ← REPLAY-001
  *   hand_raise_approved  → Navigate('Room', { roomId })  (speaker was promoted)
  *   hand_raise_request   → Navigate('Room', { roomId })  (host: someone raised hand)
  *   new_follower         → Navigate('Profile', { userId })
@@ -22,6 +23,7 @@
 
 export type DeepLinkAction =
   | { screen: 'Room';          params: { roomId: string } }
+  | { screen: 'RoomSummary';   params: { roomId: string } }
   | { screen: 'Notifications'; params: undefined }
   | { screen: 'Thread';        params: { conversationId: string } }
   | { screen: 'Profile';       params: { userId: string } }
@@ -47,6 +49,13 @@ export function parseNotificationPayload(data: RawPayload): DeepLinkAction {
       const roomId = asString(data.roomId ?? data.room_id);
       if (!roomId) return { screen: 'noop' };
       return { screen: 'Room', params: { roomId } };
+    }
+
+    // REPLAY-001: tap notification → open summary screen
+    case 'room_summary': {
+      const roomId = asString(data.roomId ?? data.room_id);
+      if (!roomId) return { screen: 'noop' };
+      return { screen: 'RoomSummary', params: { roomId } };
     }
 
     case 'new_follower': {

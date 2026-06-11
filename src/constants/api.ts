@@ -18,7 +18,8 @@ export const ENDPOINTS = {
     leave:  (id: string) => `${API_BASE}/api/rooms/${id}/leave`,
     end:    (id: string) => `${API_BASE}/api/rooms/${id}/end`,
     create:   `${API_BASE}/api/rooms`,
-    livekit:(id: string) => `${API_BASE}/api/rooms/${id}/livekit-token`,
+    livekit: (id: string) => `${API_BASE}/api/rooms/${id}/livekit-token`,
+    summary: (id: string) => `${API_BASE}/api/rooms/${id}/summary`,
   },
   notifications: {
     list:           `${API_BASE}/api/notifications`,
