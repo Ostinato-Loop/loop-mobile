@@ -45,8 +45,11 @@ const ROOM_OPTS: RoomOptions = {
 };
 
 export function useLiveKitRoom(roomId: string | null) {
-  const roomRef   = useRef<Room | null>(null);
-  const tickRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const roomRef              = useRef<Room | null>(null);
+  const tickRef              = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intentionalRef       = useRef(false);
+  const reconnectTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
 
   const [connState,    setConnState]    = useState<LKConnectionState>('disconnected');
   const [participants, setParticipants] = useState<LKParticipant[]>([]);
@@ -91,6 +94,8 @@ export function useLiveKitRoom(roomId: string | null) {
     if (!roomId) return;
     if (roomRef.current) return; // already connected
 
+    intentionalRef.current = false;
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     setConnState('connecting');
     setError(null);
 
@@ -137,6 +142,16 @@ export function useLiveKitRoom(roomId: string | null) {
         setIsMuted(true);
         setIsSpeaking(false);
         if (tickRef.current) clearInterval(tickRef.current);
+
+        // Phase 4: Mobile Recovery — auto-reconnect on unexpected disconnect
+        if (!intentionalRef.current && reconnectAttemptsRef.current < 5) {
+          const delay = Math.min(1500 * 2 ** reconnectAttemptsRef.current, 30_000);
+          reconnectAttemptsRef.current += 1;
+          setConnState('reconnecting');
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!intentionalRef.current) connect();
+          }, delay);
+        }
       });
 
       // 4. Connect — join as subscriber (listener) by default, muted
@@ -147,6 +162,7 @@ export function useLiveKitRoom(roomId: string | null) {
       // 5. Enable mic (muted) so we can toggle quickly
       await room.localParticipant.setMicrophoneEnabled(false);
 
+      reconnectAttemptsRef.current = 0; // reset on successful connect
       syncParticipants();
     } catch (err: any) {
       setError(err.message ?? 'LiveKit connection failed');
@@ -157,6 +173,9 @@ export function useLiveKitRoom(roomId: string | null) {
 
   // ── Disconnect ──────────────────────────────────────────────────────
   const disconnect = useCallback(async () => {
+    intentionalRef.current = true;
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null; }
     const room = roomRef.current;
     if (!room) return;
     await room.disconnect();
