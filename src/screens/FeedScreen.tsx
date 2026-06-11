@@ -1,24 +1,73 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * FeedScreen — African-First edition
+ * AFRICAN-UX-001 (2026-06-11)
+ *
+ * Changes vs. prior version:
+ *  • Bell icon removed — Notifications is now the "Alerts" tab (AFRICAN-UX-001)
+ *  • Search icon added — taps open DiscoverScreen as a stack screen
+ *  • Skeleton loaders: 5 shimmer cards replace blank state during first load
+ *    (Rule 4: every screen must load gracefully on poor networks)
+ *
+ * LILCKY STUDIO LIMITED
+ */
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState,
+} from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, RefreshControl, ScrollView,
+  StyleSheet, RefreshControl, ScrollView, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bell, Radio } from 'lucide-react-native';
+import { Search, Radio } from 'lucide-react-native';
 import { Colors } from '@/constants/colors';
 import { LoopLogo } from '@/components/LoopLogo';
 import { RoomCard } from '@/components/RoomCard';
 import { PresenceStrip } from '@/components/PresenceStrip';
 import { useRooms, type Room, type RoomCategory } from '@/hooks/useRooms';
-import { useNotifications } from '@/hooks/useNotifications';
 import { useLiveRoomCounts } from '@/hooks/useLiveRoomCounts';
 import { usePresence } from '@/hooks/usePresence';
 import { useAuth } from '@/hooks/useAuth';
 import type { RootStackParamList } from '@/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+// ── Skeleton loader ───────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.75, duration: 750, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.35, duration: 750, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={[styles.skeletonCard, { opacity }]}>
+      <View style={styles.skeletonHeader}>
+        <View style={styles.skeletonAvatar} />
+        <View style={styles.skeletonLines}>
+          <View style={[styles.skeletonLine, { width: '60%' }]} />
+          <View style={[styles.skeletonLine, { width: '40%', marginTop: 6 }]} />
+        </View>
+        <View style={styles.skeletonBadge} />
+      </View>
+      <View style={[styles.skeletonLine, { width: '85%', marginTop: 12 }]} />
+      <View style={[styles.skeletonLine, { width: '55%', marginTop: 8 }]} />
+    </Animated.View>
+  );
+}
+
+const SKELETON_COUNT = 5;
+
+// ── Category chips ────────────────────────────────────────────────────────────
 
 const CATEGORIES: { label: string; value: RoomCategory | '' }[] = [
   { label: 'For you',    value: '' },
@@ -31,16 +80,17 @@ const CATEGORIES: { label: string; value: RoomCategory | '' }[] = [
   { label: 'Business',   value: 'business' },
 ];
 
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 export default function FeedScreen() {
   const nav    = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
-  const { unread } = useNotifications();
 
   const [activeCategory, setActiveCategory] = useState<RoomCategory | ''>('');
   const { rooms, loading, refreshing, refresh } = useRooms({ category: activeCategory });
 
-  // ── Live listener counts ────────────────────────────────────────────
+  // ── Live listener counts ──────────────────────────────────────────────
   const { counts, seedCounts, deltaFor } = useLiveRoomCounts();
   const [newlyLive, setNewlyLive] = useState<Set<string>>(new Set());
   const prevCountsRef = useRef<typeof counts>(new Map());
@@ -48,9 +98,9 @@ export default function FeedScreen() {
   useEffect(() => {
     if (rooms.length === 0) return;
     seedCounts(rooms.map(r => ({
-      id: r.id,
+      id:             r.id,
       audience_count: r.audience_count,
-      is_live: r.is_live,
+      is_live:        r.is_live,
     })));
   }, [rooms, seedCounts]);
 
@@ -67,7 +117,7 @@ export default function FeedScreen() {
     return () => clearTimeout(t);
   }, [counts]);
 
-  // ── Presence ────────────────────────────────────────────────────────
+  // ── Presence ──────────────────────────────────────────────────────────
   const selfPayload = useMemo(() => {
     if (!user?.id) return null;
     return {
@@ -80,7 +130,7 @@ export default function FeedScreen() {
 
   const { online } = usePresence(selfPayload);
 
-  // ── Navigation ───────────────────────────────────────────────────────
+  // ── Navigation ────────────────────────────────────────────────────────
   const handleRoomPress = useCallback((room: Room) => {
     nav.navigate('Room', { roomId: room.id });
   }, [nav]);
@@ -89,22 +139,19 @@ export default function FeedScreen() {
     nav.navigate('Room', { roomId });
   }, [nav]);
 
-  // ── List header (memoised so category changes don't re-mount strip) ─
+  // ── List header ───────────────────────────────────────────────────────
   const ListHeader = useMemo(() => (
     <>
       {/* ── Top bar ── */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <LoopLogo size={26} />
+        {/* Search opens Discover as a stack screen (AFRICAN-UX-001) */}
         <TouchableOpacity
-          style={styles.bellBtn}
-          onPress={() => nav.navigate('Notifications')}
+          style={styles.searchBtn}
+          onPress={() => nav.navigate('Discover')}
+          hitSlop={8}
         >
-          <Bell size={22} color={Colors.foreground} />
-          {unread > 0 && (
-            <View style={styles.notifBadge}>
-              <Text style={styles.notifBadgeText}>{unread > 9 ? '9+' : unread}</Text>
-            </View>
-          )}
+          <Search size={22} color={Colors.foreground} />
         </TouchableOpacity>
       </View>
 
@@ -149,7 +196,29 @@ export default function FeedScreen() {
       )}
     </>
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [insets.top, unread, online, activeCategory, rooms.length, loading]);
+  ), [insets.top, online, activeCategory, rooms.length, loading]);
+
+  // ── Show skeletons on first load ──────────────────────────────────────
+  if (loading && rooms.length === 0) {
+    return (
+      <View style={styles.root}>
+        {/* Header still visible during load */}
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <LoopLogo size={26} />
+          <TouchableOpacity
+            style={styles.searchBtn}
+            onPress={() => nav.navigate('Discover')}
+            hitSlop={8}
+          >
+            <Search size={22} color={Colors.foreground} />
+          </TouchableOpacity>
+        </View>
+        {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -188,40 +257,96 @@ export default function FeedScreen() {
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom:     14,
   },
-  bellBtn: {
-    width: 40, height: 40, borderRadius: 20,
+  searchBtn: {
+    width:           40,
+    height:          40,
+    borderRadius:    20,
     backgroundColor: Colors.surface,
-    alignItems: 'center', justifyContent: 'center',
-    position: 'relative',
+    alignItems:      'center',
+    justifyContent:  'center',
   },
-  notifBadge: {
-    position: 'absolute', top: 2, right: 2,
-    backgroundColor: Colors.live, borderRadius: 8,
-    minWidth: 16, height: 16,
-    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
-  },
-  notifBadgeText: { color: Colors.foreground, fontSize: 10, fontWeight: '700' },
+
   chipScroll:     { marginBottom: 8, marginTop: 10 },
   chipContent:    { paddingHorizontal: 16, gap: 8 },
   chip: {
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
-    minHeight: 44, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical:   10,
+    borderRadius:      20,
+    backgroundColor:   Colors.surface,
+    borderWidth:       1,
+    borderColor:       Colors.border,
+    minHeight:         44,
+    alignItems:        'center',
+    justifyContent:    'center',
   },
   chipActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
   chipText:       { color: Colors.mutedFg, fontSize: 14, fontWeight: '500' },
   chipTextActive: { color: Colors.primaryFg, fontWeight: '700' },
   list:           { paddingBottom: 24 },
-  empty:          { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
-  emptyTitle:     { color: Colors.foreground, fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'center' },
-  emptyBody:      { color: Colors.mutedFg, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+
+  empty: {
+    alignItems:        'center',
+    paddingVertical:   60,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    color:      Colors.foreground,
+    fontSize:   18,
+    fontWeight: '700',
+    marginTop:  16,
+    textAlign:  'center',
+  },
+  emptyBody: {
+    color:      Colors.mutedFg,
+    fontSize:   14,
+    textAlign:  'center',
+    marginTop:  8,
+    lineHeight: 20,
+  },
+
+  // ── Skeleton ──────────────────────────────────────────────────────────
+  skeletonCard: {
+    marginHorizontal: 16,
+    marginTop:        12,
+    padding:          14,
+    borderRadius:     14,
+    backgroundColor:  Colors.surface,
+    borderWidth:      1,
+    borderColor:      Colors.border,
+  },
+  skeletonHeader: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+  skeletonAvatar: {
+    width:           38,
+    height:          38,
+    borderRadius:    19,
+    backgroundColor: Colors.border,
+  },
+  skeletonLines:  { flex: 1 },
+  skeletonLine: {
+    height:          10,
+    borderRadius:    6,
+    backgroundColor: Colors.border,
+  },
+  skeletonBadge: {
+    width:           36,
+    height:          18,
+    borderRadius:    9,
+    backgroundColor: Colors.border,
+  },
 });

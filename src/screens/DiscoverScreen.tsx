@@ -33,7 +33,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   Search, X, Globe2, Radio, Users,
-  TrendingUp, BadgeCheck, Hash,
+  TrendingUp, BadgeCheck, Hash, ArrowLeft,
 } from 'lucide-react-native';
 import { Colors, avatarGradient, initials } from '@/constants/colors';
 import { RoomCard } from '@/components/RoomCard';
@@ -297,6 +297,18 @@ export default function DiscoverScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
 
+      {/* Back button row (stack screen — AFRICAN-UX-001) */}
+      <View style={styles.backRow}>
+        <TouchableOpacity
+          style={styles.backBtn}
+          onPress={() => nav.goBack()}
+          hitSlop={8}
+        >
+          <ArrowLeft size={22} color={Colors.foreground} />
+        </TouchableOpacity>
+        <Text style={styles.backTitle}>Search & Discover</Text>
+      </View>
+
       {/* Search bar */}
       <View style={styles.searchBar}>
         <Search size={17} color={Colors.mutedFg} />
@@ -490,4 +502,15 @@ const styles = StyleSheet.create({
   followingBtn:     { borderColor: Colors.border, backgroundColor: Colors.surface },
   followBtnText:    { color: Colors.primary, fontSize: 13, fontWeight: '700' },
   followingBtnText: { color: Colors.mutedFg },
+
+  // Back row (AFRICAN-UX-001 — now a stack screen, not a tab)
+  backRow: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingHorizontal: 8,
+    paddingBottom:     8,
+    gap:               4,
+  },
+  backBtn:   { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  backTitle: { color: Colors.foreground, fontSize: 17, fontWeight: '700' },
 });

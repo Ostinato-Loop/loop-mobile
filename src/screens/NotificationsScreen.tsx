@@ -1,10 +1,16 @@
 /**
- * NotificationsScreen
+ * NotificationsScreen — African-First edition
+ * AFRICAN-UX-001 (2026-06-11)
  *
- * Grouped, deep-linked notification feed.
+ * Changes vs. prior version:
+ *  • Now a TAB screen (Alerts tab) — back button removed.
+ *  • Category filter replaces All/Unread:
+ *      All | Mentions | Messages | Invites | Followers
+ *    Matches spec: "Only: Mentions, Messages, Invites, Civic Alerts, Followers"
+ *    (Civic Alerts maps to room_live for broadcast rooms; future dedicated type)
+ *  • Unread dot and mark-all-read preserved.
  *
  * Groups: Today · Yesterday · This week · Earlier
- * Filter tabs: All | Unread
  *
  * Tap actions:
  *   room_live / room_ended      → Room (if room_id available)
@@ -13,20 +19,19 @@
  *   coin_received               → Earnings
  *   mention                     → Room (if room_id available)
  *
- * Avatar: shown for people-based types using sender_avatar or
- *         a gradient initial fallback.
+ * LILCKY STUDIO LIMITED
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   View, Text, SectionList, TouchableOpacity,
   StyleSheet, ActivityIndicator, RefreshControl,
-  Image,
+  Image, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  ArrowLeft, Radio, UserPlus, MessageCircle,
+  Radio, UserPlus, MessageCircle,
   CheckCircle2, Coins, AtSign, BellOff,
 } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -37,54 +42,54 @@ import type { RootStackParamList } from '@/navigation/index';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-// ── Time helpers ──────────────────────────────────────────────────────────────
+// ── Time helpers ───────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60)    return 'just now';
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800)return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60)     return 'just now';
+  if (diff < 3600)   return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400)  return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function dayBucket(iso: string): string {
   const now  = new Date();
   const date = new Date(iso);
-  const todayStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const diff = todayStart.getTime() - new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-  if (diff <= 0)        return 'Today';
-  if (diff <= 86400000) return 'Yesterday';
-  if (diff <= 6 * 86400000) return 'This week';
+  if (diff <= 0)             return 'Today';
+  if (diff <= 86400000)      return 'Yesterday';
+  if (diff <= 6 * 86400000)  return 'This week';
   return 'Earlier';
 }
 
 const BUCKET_ORDER = ['Today', 'Yesterday', 'This week', 'Earlier'];
 
-// ── Icon / color config ───────────────────────────────────────────────────────
+// ── Icon / colour config ───────────────────────────────────────────────────────
 
 type IconCfg = { bg: string; icon: React.ReactElement };
 
 function iconConfig(type: NotificationType): IconCfg {
   switch (type) {
     case 'room_live':
-      return { bg: Colors.live + '22',    icon: <Radio        size={18} color={Colors.live}    /> };
+      return { bg: Colors.live + '22',    icon: <Radio         size={18} color={Colors.live}    /> };
     case 'room_ended':
-      return { bg: Colors.mutedFg + '22', icon: <Radio        size={18} color={Colors.mutedFg} /> };
+      return { bg: Colors.mutedFg + '22', icon: <Radio         size={18} color={Colors.mutedFg} /> };
     case 'new_follower':
-      return { bg: Colors.primary + '22', icon: <UserPlus     size={18} color={Colors.primary} /> };
+      return { bg: Colors.primary + '22', icon: <UserPlus      size={18} color={Colors.primary} /> };
     case 'friend_request':
-      return { bg: Colors.accent + '22',  icon: <UserPlus     size={18} color={Colors.accent}  /> };
+      return { bg: Colors.accent + '22',  icon: <UserPlus      size={18} color={Colors.accent}  /> };
     case 'connection_accepted':
-      return { bg: Colors.primary + '22', icon: <CheckCircle2 size={18} color={Colors.primary} /> };
+      return { bg: Colors.primary + '22', icon: <CheckCircle2  size={18} color={Colors.primary} /> };
     case 'direct_message':
-      return { bg: Colors.accent + '22',  icon: <MessageCircle size={18} color={Colors.accent} /> };
+      return { bg: Colors.accent + '22',  icon: <MessageCircle size={18} color={Colors.accent}  /> };
     case 'coin_received':
-      return { bg: Colors.primary + '22', icon: <Coins        size={18} color={Colors.primary} /> };
+      return { bg: Colors.primary + '22', icon: <Coins         size={18} color={Colors.primary} /> };
     case 'mention':
-      return { bg: Colors.accent + '22',  icon: <AtSign       size={18} color={Colors.accent}  /> };
+      return { bg: Colors.accent + '22',  icon: <AtSign        size={18} color={Colors.accent}  /> };
     default:
-      return { bg: Colors.border,          icon: <Radio        size={18} color={Colors.mutedFg} /> };
+      return { bg: Colors.border,          icon: <Radio         size={18} color={Colors.mutedFg} /> };
   }
 }
 
@@ -92,7 +97,54 @@ const PEOPLE_TYPES: NotificationType[] = [
   'new_follower', 'friend_request', 'connection_accepted', 'direct_message', 'mention',
 ];
 
-// ── Avatar ────────────────────────────────────────────────────────────────────
+// ── Category filter (AFRICAN-UX-001) ──────────────────────────────────────────
+
+type Category = 'all' | 'mentions' | 'messages' | 'invites' | 'followers';
+
+const CATEGORIES: { key: Category; label: string }[] = [
+  { key: 'all',       label: 'All'       },
+  { key: 'mentions',  label: 'Mentions'  },
+  { key: 'messages',  label: 'Messages'  },
+  { key: 'invites',   label: 'Invites'   },
+  { key: 'followers', label: 'Followers' },
+];
+
+const CATEGORY_TYPES: Record<Category, NotificationType[]> = {
+  all:       [],
+  mentions:  ['mention'],
+  messages:  ['direct_message'],
+  invites:   ['friend_request'],
+  followers: ['new_follower'],
+};
+
+function CategoryTabs({ active, onChange }: {
+  active:   Category;
+  onChange: (c: Category) => void;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.catScroll}
+      contentContainerStyle={styles.catContent}
+    >
+      {CATEGORIES.map(c => (
+        <TouchableOpacity
+          key={c.key}
+          style={[styles.catChip, active === c.key && styles.catChipActive]}
+          onPress={() => onChange(c.key)}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.catText, active === c.key && styles.catTextActive]}>
+            {c.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+}
+
+// ── Avatar ─────────────────────────────────────────────────────────────────────
 
 function NotifAvatar({ item }: { item: Notification }) {
   const isPeople = PEOPLE_TYPES.includes(item.type);
@@ -102,9 +154,7 @@ function NotifAvatar({ item }: { item: Notification }) {
     return (
       <View style={styles.avatarWrap}>
         <Image source={{ uri: item.data.sender_avatar }} style={styles.avatarImg} />
-        <View style={[styles.typeChip, { backgroundColor: cfg.bg }]}>
-          {cfg.icon}
-        </View>
+        <View style={[styles.typeChip, { backgroundColor: cfg.bg }]}>{cfg.icon}</View>
       </View>
     );
   }
@@ -117,9 +167,7 @@ function NotifAvatar({ item }: { item: Notification }) {
         <LinearGradient colors={[...grad]} style={styles.avatarGrad}>
           <Text style={styles.avatarInitials}>{name}</Text>
         </LinearGradient>
-        <View style={[styles.typeChip, { backgroundColor: cfg.bg }]}>
-          {cfg.icon}
-        </View>
+        <View style={[styles.typeChip, { backgroundColor: cfg.bg }]}>{cfg.icon}</View>
       </View>
     );
   }
@@ -131,16 +179,10 @@ function NotifAvatar({ item }: { item: Notification }) {
   );
 }
 
-// ── Row ───────────────────────────────────────────────────────────────────────
+// ── Row ────────────────────────────────────────────────────────────────────────
 
-type RowProps = {
-  item:     Notification;
-  onPress:  (item: Notification) => void;
-};
-
-function NotifRow({ item, onPress }: RowProps) {
+function NotifRow({ item, onPress }: { item: Notification; onPress: (n: Notification) => void }) {
   const coinAmt = item.data?.amount_coins;
-
   return (
     <TouchableOpacity
       style={[styles.row, !item.is_read && styles.rowUnread]}
@@ -148,55 +190,22 @@ function NotifRow({ item, onPress }: RowProps) {
       activeOpacity={0.75}
     >
       <NotifAvatar item={item} />
-
       <View style={styles.rowBody}>
-        <View style={styles.rowTop}>
-          <Text style={[styles.rowTitle, !item.is_read && styles.rowTitleUnread]} numberOfLines={2}>
-            {item.title}
-            {coinAmt ? (
-              <Text style={styles.coinInline}>  ⬡ +{coinAmt.toLocaleString()}</Text>
-            ) : null}
-          </Text>
-        </View>
+        <Text style={[styles.rowTitle, !item.is_read && styles.rowTitleUnread]} numberOfLines={2}>
+          {item.title}
+          {coinAmt ? <Text style={styles.coinInline}>  ⬡ +{coinAmt.toLocaleString()}</Text> : null}
+        </Text>
         {item.body ? (
           <Text style={styles.rowBody2} numberOfLines={2}>{item.body}</Text>
         ) : null}
         <Text style={styles.rowTime}>{timeAgo(item.created_at)}</Text>
       </View>
-
       {!item.is_read && <View style={styles.unreadDot} />}
     </TouchableOpacity>
   );
 }
 
-// ── Filter tabs ───────────────────────────────────────────────────────────────
-
-type Filter = 'all' | 'unread';
-
-function FilterTabs({ active, onChange, unreadCount }: {
-  active:       Filter;
-  onChange:     (f: Filter) => void;
-  unreadCount:  number;
-}) {
-  return (
-    <View style={styles.tabs}>
-      {(['all', 'unread'] as Filter[]).map(f => (
-        <TouchableOpacity
-          key={f}
-          style={[styles.tab, active === f && styles.tabActive]}
-          onPress={() => onChange(f)}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.tabText, active === f && styles.tabTextActive]}>
-            {f === 'all' ? 'All' : `Unread${unreadCount > 0 ? ` (${unreadCount})` : ''}`}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────────────────────
 
 export default function NotificationsScreen() {
   const nav    = useNavigation<Nav>();
@@ -205,12 +214,12 @@ export default function NotificationsScreen() {
   const { notifications, unread, loading, refreshing, refresh, markRead, markAllRead } =
     useNotifications();
 
-  const [filter, setFilter] = useState<Filter>('all');
+  const [category, setCategory] = useState<Category>('all');
 
-  // ── Build sections ─────────────────────────────────────────────────────────
   const sections = useMemo(() => {
-    const filtered = filter === 'unread'
-      ? notifications.filter(n => !n.is_read)
+    const allowedTypes = CATEGORY_TYPES[category];
+    const filtered = allowedTypes.length > 0
+      ? notifications.filter(n => allowedTypes.includes(n.type))
       : notifications;
 
     const buckets: Record<string, Notification[]> = {};
@@ -223,21 +232,18 @@ export default function NotificationsScreen() {
     return BUCKET_ORDER
       .filter(b => buckets[b]?.length > 0)
       .map(b => ({
-        title: b,
-        data:  buckets[b],
+        title:  b,
+        data:   buckets[b],
         unread: buckets[b].filter(n => !n.is_read).length,
       }));
-  }, [notifications, filter]);
+  }, [notifications, category]);
 
-  // ── Tap handler ────────────────────────────────────────────────────────────
   const handlePress = useCallback(async (item: Notification) => {
     if (!item.is_read) {
       await markRead(item.id);
       await Haptics.selectionAsync();
     }
-
     const { type, data } = item;
-
     if ((type === 'room_live' || type === 'room_ended' || type === 'mention') && data?.room_id) {
       nav.navigate('Room', { roomId: data.room_id });
       return;
@@ -255,22 +261,15 @@ export default function NotificationsScreen() {
     }
     if (type === 'coin_received') {
       nav.navigate('Earnings');
-      return;
     }
   }, [markRead, nav]);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  const hasUnread = unread > 0;
-
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
-      {/* Header */}
+      {/* Header — no back button (this is a tab screen) */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => nav.goBack()} style={styles.backBtn} hitSlop={12}>
-          <ArrowLeft size={22} color={Colors.foreground} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        {hasUnread ? (
+        <Text style={styles.headerTitle}>Alerts</Text>
+        {unread > 0 && (
           <TouchableOpacity
             onPress={async () => {
               await markAllRead();
@@ -280,11 +279,11 @@ export default function NotificationsScreen() {
           >
             <Text style={styles.markAllText}>Mark all read</Text>
           </TouchableOpacity>
-        ) : <View style={{ width: 88 }} />}
+        )}
       </View>
 
-      {/* Filter tabs */}
-      <FilterTabs active={filter} onChange={setFilter} unreadCount={unread} />
+      {/* Category chips */}
+      <CategoryTabs active={category} onChange={setCategory} />
 
       {/* List */}
       {loading ? (
@@ -319,12 +318,12 @@ export default function NotificationsScreen() {
             <View style={styles.empty}>
               <BellOff size={48} color={Colors.mutedFg} strokeWidth={1.5} />
               <Text style={styles.emptyTitle}>
-                {filter === 'unread' ? 'All caught up' : 'Nothing yet'}
+                {category !== 'all' ? `No ${category} yet` : 'Nothing yet'}
               </Text>
               <Text style={styles.emptySub}>
-                {filter === 'unread'
-                  ? 'No unread notifications right now.'
-                  : 'You\'ll see rooms going live, new followers, messages and coin drops here.'}
+                {category !== 'all'
+                  ? `Your ${category} will appear here.`
+                  : "You'll see room alerts, new followers, messages and mentions here."}
               </Text>
             </View>
           }
@@ -335,7 +334,7 @@ export default function NotificationsScreen() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
+// ── Styles ─────────────────────────────────────────────────────────────────────
 
 const AVATAR_SIZE = 46;
 const CHIP_SIZE   = 20;
@@ -343,97 +342,110 @@ const CHIP_SIZE   = 20;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
 
+  // Header (no back button)
   header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingBottom: 10, paddingTop: 2,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+    flexDirection:     'row',
+    alignItems:        'center',
+    justifyContent:    'space-between',
+    paddingHorizontal: 16,
+    paddingBottom:     10,
+    paddingTop:        4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
-  backBtn:      { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle:  { flex: 1, textAlign: 'center', color: Colors.foreground, fontSize: 17, fontWeight: '700' },
-  markAllBtn:   { width: 88, alignItems: 'flex-end', paddingRight: 4 },
+  headerTitle:  { color: Colors.foreground, fontSize: 20, fontWeight: '700' },
+  markAllBtn:   { paddingHorizontal: 4 },
   markAllText:  { color: Colors.primary, fontSize: 13, fontWeight: '600' },
 
-  // Filter tabs
-  tabs: {
-    flexDirection: 'row',
-    paddingHorizontal: 16, paddingVertical: 10,
-    gap: 8,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+  // Category chips
+  catScroll:  { borderBottomWidth: 1, borderBottomColor: Colors.border },
+  catContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  catChip: {
+    paddingHorizontal: 18,
+    paddingVertical:   8,
+    borderRadius:      20,
+    borderWidth:       1,
+    borderColor:       Colors.border,
+    minHeight:         36,
+    alignItems:        'center',
+    justifyContent:    'center',
   },
-  tab: {
-    paddingHorizontal: 16, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1, borderColor: Colors.border,
-  },
-  tabActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  tabText:       { color: Colors.mutedFg, fontSize: 13, fontWeight: '600' },
-  tabTextActive: { color: Colors.primaryFg },
+  catChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  catText:       { color: Colors.mutedFg, fontSize: 13, fontWeight: '600' },
+  catTextActive: { color: Colors.primaryFg, fontWeight: '700' },
 
-  // Section
+  // Section header
   sectionHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4,
-    backgroundColor: Colors.background,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               8,
+    paddingHorizontal: 16,
+    paddingTop:        14,
+    paddingBottom:     4,
+    backgroundColor:   Colors.background,
   },
-  sectionTitle: { color: Colors.mutedFg, fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
-  sectionBadge: {
-    backgroundColor: Colors.primary + '22',
-    borderRadius: 10, paddingHorizontal: 7, paddingVertical: 1,
-  },
+  sectionTitle:     { color: Colors.mutedFg, fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
+  sectionBadge:     { backgroundColor: Colors.primary + '22', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 1 },
   sectionBadgeText: { color: Colors.primary, fontSize: 11, fontWeight: '700' },
 
   listContent: { paddingBottom: 40 },
 
   // Row
   row: {
-    flexDirection: 'row', alignItems: 'flex-start',
-    paddingHorizontal: 16, paddingVertical: 13,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
-    gap: 12,
+    flexDirection:     'row',
+    alignItems:        'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical:   13,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap:               12,
   },
   rowUnread:      { backgroundColor: Colors.primary + '07' },
   rowBody:        { flex: 1 },
-  rowTop:         { flexDirection: 'row', alignItems: 'flex-start' },
-  rowTitle:       { flex: 1, color: Colors.mutedFg, fontSize: 14, lineHeight: 20, fontWeight: '500' },
+  rowTitle:       { color: Colors.mutedFg, fontSize: 14, lineHeight: 20, fontWeight: '500' },
   rowTitleUnread: { color: Colors.foreground, fontWeight: '700' },
   rowBody2:       { color: Colors.mutedFg, fontSize: 13, lineHeight: 18, marginTop: 3 },
   rowTime:        { color: Colors.mutedFg, fontSize: 12, marginTop: 4 },
   coinInline:     { color: Colors.primary, fontWeight: '700' },
   unreadDot: {
-    width: 8, height: 8, borderRadius: 4,
+    width:           8,
+    height:          8,
+    borderRadius:    4,
     backgroundColor: Colors.primary,
-    marginTop: 7, flexShrink: 0,
+    marginTop:       7,
+    flexShrink:      0,
   },
 
   // Icon circle (non-people)
   iconCircle: {
-    width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2,
-    alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0,
+    width:          AVATAR_SIZE,
+    height:         AVATAR_SIZE,
+    borderRadius:   AVATAR_SIZE / 2,
+    alignItems:     'center',
+    justifyContent: 'center',
+    flexShrink:     0,
   },
 
   // Avatar (people)
-  avatarWrap: {
-    width: AVATAR_SIZE, height: AVATAR_SIZE,
-    flexShrink: 0,
-  },
-  avatarImg: {
-    width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: Colors.surface,
-  },
-  avatarGrad: {
-    width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  avatarWrap:     { width: AVATAR_SIZE, height: AVATAR_SIZE, flexShrink: 0 },
+  avatarImg:      { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2, backgroundColor: Colors.surface },
+  avatarGrad:     { width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
   avatarInitials: { color: '#fff', fontSize: 15, fontWeight: '700' },
   typeChip: {
-    position: 'absolute', bottom: -2, right: -2,
-    width: CHIP_SIZE, height: CHIP_SIZE, borderRadius: CHIP_SIZE / 2,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: Colors.background,
+    position:        'absolute',
+    bottom:          -2,
+    right:           -2,
+    width:           CHIP_SIZE,
+    height:          CHIP_SIZE,
+    borderRadius:    CHIP_SIZE / 2,
+    alignItems:      'center',
+    justifyContent:  'center',
+    borderWidth:     1.5,
+    borderColor:     Colors.background,
   },
 
   // Empty
-  empty:       { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
-  emptyTitle:  { color: Colors.foreground, fontSize: 18, fontWeight: '700', marginTop: 18, marginBottom: 10 },
-  emptySub:    { color: Colors.mutedFg, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  empty:      { alignItems: 'center', paddingTop: 80, paddingHorizontal: 40 },
+  emptyTitle: { color: Colors.foreground, fontSize: 18, fontWeight: '700', marginTop: 18, marginBottom: 10 },
+  emptySub:   { color: Colors.mutedFg, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 });
