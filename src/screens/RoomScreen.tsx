@@ -12,7 +12,7 @@
  *   listener   → raise hand OR push-to-talk (if host enabled PTT)
  */
 import React, {
-  useCallback, useRef, useState,
+  useCallback, useEffect, useRef, useState,
 } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
@@ -43,6 +43,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { apiPost } from '@/lib/api-client';
 import { ENDPOINTS } from '@/constants/api';
 import type { RootStackParamList } from '@/navigation';
+import { saveRecentRoom } from '@/hooks/useRecentRooms';
 
 type Nav   = NativeStackNavigationProp<RootStackParamList, 'Room'>;
 type Route = RouteProp<RootStackParamList, 'Room'>;
@@ -170,6 +171,24 @@ export default function RoomScreen() {
   React.useEffect(() => {
     if (isHost && hr.queue.length > 0) setShowHandQueue(true);
   }, [isHost, hr.queue.length]);
+
+  // ── Save to recent rooms on entry (RETENTION-001) ──────────────────
+  // Fires once when room metadata first loads — persists to AsyncStorage
+  // so FeedScreen can show "Continue Listening" on the user's next visit.
+  useEffect(() => {
+    if (!rt.room) return;
+    saveRecentRoom({
+      id:             rt.room.id,
+      title:          rt.room.title,
+      host_id:        rt.room.host_id,
+      category:       rt.room.category,
+      is_live:        rt.room.is_live,
+      audience_count: rt.room.audience_count,
+      host:           rt.room.host,
+    });
+  // Only save once per room (id is stable for the session)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rt.room?.id]);
 
   // ── Loading / error ────────────────────────────────────────────────
   if (rt.status === 'loading') {

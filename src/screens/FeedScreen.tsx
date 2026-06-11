@@ -1,12 +1,10 @@
 /**
  * FeedScreen — African-First edition
- * AFRICAN-UX-001 (2026-06-11)
+ * AFRICAN-UX-001 (2026-06-11): Bell removed, Search icon, skeleton loaders
+ * RETENTION-001 (2026-06-11): "Continue Listening" strip for returning users
  *
- * Changes vs. prior version:
- *  • Bell icon removed — Notifications is now the "Alerts" tab (AFRICAN-UX-001)
- *  • Search icon added — taps open DiscoverScreen as a stack screen
- *  • Skeleton loaders: 5 shimmer cards replace blank state during first load
- *    (Rule 4: every screen must load gracefully on poor networks)
+ * Spec: "When users return, show: Continue Listening, Recent Rooms.
+ *        Never show an empty screen."
  *
  * LILCKY STUDIO LIMITED
  */
@@ -20,8 +18,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Search, Radio } from 'lucide-react-native';
-import { Colors } from '@/constants/colors';
+import { Search, Radio, History } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors, avatarGradient, initials } from '@/constants/colors';
 import { LoopLogo } from '@/components/LoopLogo';
 import { RoomCard } from '@/components/RoomCard';
 import { PresenceStrip } from '@/components/PresenceStrip';
@@ -29,6 +28,7 @@ import { useRooms, type Room, type RoomCategory } from '@/hooks/useRooms';
 import { useLiveRoomCounts } from '@/hooks/useLiveRoomCounts';
 import { usePresence } from '@/hooks/usePresence';
 import { useAuth } from '@/hooks/useAuth';
+import { useRecentRooms, type RecentRoom } from '@/hooks/useRecentRooms';
 import type { RootStackParamList } from '@/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -67,6 +67,85 @@ function SkeletonCard() {
 
 const SKELETON_COUNT = 5;
 
+// ── Continue Listening strip ──────────────────────────────────────────────────
+
+const CATEGORY_EMOJI: Record<string, string> = {
+  community: '🏘️', news: '📡', commentary: '🎙️',
+  radio: '📻', 'dj-session': '🎧', education: '📚',
+  business: '💼', general: '🎵',
+};
+
+function RecentRoomCard({
+  room,
+  onPress,
+}: {
+  room: RecentRoom;
+  onPress: (id: string) => void;
+}) {
+  const grad     = avatarGradient(room.host_id);
+  const ini      = initials(room.host?.display_name ?? room.host?.username ?? '?');
+  const emoji    = CATEGORY_EMOJI[room.category] ?? '🎵';
+  const hostName = room.host?.display_name ?? room.host?.username ?? 'Host';
+
+  return (
+    <TouchableOpacity
+      style={styles.recentCard}
+      onPress={() => onPress(room.id)}
+      activeOpacity={0.8}
+    >
+      {/* Host avatar */}
+      <LinearGradient colors={grad} style={styles.recentAvatar}>
+        <Text style={styles.recentAvatarText}>{ini}</Text>
+      </LinearGradient>
+
+      {/* Live indicator */}
+      {room.is_live && (
+        <View style={styles.recentLiveBadge}>
+          <View style={styles.recentLiveDot} />
+          <Text style={styles.recentLiveText}>LIVE</Text>
+        </View>
+      )}
+
+      {/* Category emoji */}
+      <Text style={styles.recentEmoji}>{emoji}</Text>
+
+      {/* Title */}
+      <Text style={styles.recentTitle} numberOfLines={2}>{room.title}</Text>
+
+      {/* Host */}
+      <Text style={styles.recentHost} numberOfLines={1}>{hostName}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function ContinueListeningStrip({
+  rooms,
+  onPress,
+}: {
+  rooms: RecentRoom[];
+  onPress: (id: string) => void;
+}) {
+  if (rooms.length === 0) return null;
+
+  return (
+    <View style={styles.recentSection}>
+      <View style={styles.recentHeader}>
+        <History size={14} color={Colors.mutedFg} />
+        <Text style={styles.recentHeaderText}>Continue Listening</Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.recentScroll}
+      >
+        {rooms.map(r => (
+          <RecentRoomCard key={r.id} room={r} onPress={onPress} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 // ── Category chips ────────────────────────────────────────────────────────────
 
 const CATEGORIES: { label: string; value: RoomCategory | '' }[] = [
@@ -89,6 +168,7 @@ export default function FeedScreen() {
 
   const [activeCategory, setActiveCategory] = useState<RoomCategory | ''>('');
   const { rooms, loading, refreshing, refresh } = useRooms({ category: activeCategory });
+  const { recentRooms } = useRecentRooms();
 
   // ── Live listener counts ──────────────────────────────────────────────
   const { counts, seedCounts, deltaFor } = useLiveRoomCounts();
@@ -135,6 +215,10 @@ export default function FeedScreen() {
     nav.navigate('Room', { roomId: room.id });
   }, [nav]);
 
+  const handleRecentRoomPress = useCallback((roomId: string) => {
+    nav.navigate('Room', { roomId });
+  }, [nav]);
+
   const handlePresenceRoomPress = useCallback((roomId: string) => {
     nav.navigate('Room', { roomId });
   }, [nav]);
@@ -145,7 +229,6 @@ export default function FeedScreen() {
       {/* ── Top bar ── */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <LoopLogo size={26} />
-        {/* Search opens Discover as a stack screen (AFRICAN-UX-001) */}
         <TouchableOpacity
           style={styles.searchBtn}
           onPress={() => nav.navigate('Discover')}
@@ -154,6 +237,12 @@ export default function FeedScreen() {
           <Search size={22} color={Colors.foreground} />
         </TouchableOpacity>
       </View>
+
+      {/* ── Continue Listening strip (RETENTION-001) ── */}
+      <ContinueListeningStrip
+        rooms={recentRooms}
+        onPress={handleRecentRoomPress}
+      />
 
       {/* ── Who's online strip ── */}
       {online.length > 0 && (
@@ -196,13 +285,12 @@ export default function FeedScreen() {
       )}
     </>
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [insets.top, online, activeCategory, rooms.length, loading]);
+  ), [insets.top, online, activeCategory, rooms.length, loading, recentRooms]);
 
-  // ── Show skeletons on first load ──────────────────────────────────────
+  // ── First-load skeleton ───────────────────────────────────────────────
   if (loading && rooms.length === 0) {
     return (
       <View style={styles.root}>
-        {/* Header still visible during load */}
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <LoopLogo size={26} />
           <TouchableOpacity
@@ -213,6 +301,11 @@ export default function FeedScreen() {
             <Search size={22} color={Colors.foreground} />
           </TouchableOpacity>
         </View>
+        {/* Show recent rooms even during load — they're cached locally */}
+        <ContinueListeningStrip
+          rooms={recentRooms}
+          onPress={handleRecentRoomPress}
+        />
         {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
           <SkeletonCard key={i} />
         ))}
@@ -278,6 +371,77 @@ const styles = StyleSheet.create({
     justifyContent:  'center',
   },
 
+  // ── Continue Listening (RETENTION-001) ───────────────────────────────
+  recentSection: {
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    paddingBottom: 14,
+  },
+  recentHeader: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               6,
+    paddingHorizontal: 16,
+    paddingTop:        12,
+    paddingBottom:     10,
+  },
+  recentHeaderText: {
+    color:       Colors.mutedFg,
+    fontSize:    12,
+    fontWeight:  '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  recentScroll: { paddingHorizontal: 16, gap: 10 },
+  recentCard: {
+    width:           160,
+    backgroundColor: Colors.surface,
+    borderRadius:    14,
+    borderWidth:     1,
+    borderColor:     Colors.border,
+    padding:         12,
+    position:        'relative',
+  },
+  recentAvatar: {
+    width:          38,
+    height:         38,
+    borderRadius:   19,
+    alignItems:     'center',
+    justifyContent: 'center',
+    marginBottom:   8,
+  },
+  recentAvatarText: { color: Colors.primaryFg, fontSize: 14, fontWeight: '700' },
+  recentLiveBadge: {
+    position:        'absolute',
+    top:             8,
+    right:           8,
+    flexDirection:   'row',
+    alignItems:      'center',
+    gap:             4,
+    backgroundColor: Colors.live + '22',
+    borderRadius:    6,
+    paddingHorizontal: 5,
+    paddingVertical:   2,
+  },
+  recentLiveDot: {
+    width:           6,
+    height:          6,
+    borderRadius:    3,
+    backgroundColor: Colors.live,
+  },
+  recentLiveText:  { color: Colors.live, fontSize: 10, fontWeight: '700' },
+  recentEmoji:     { fontSize: 16, marginBottom: 4 },
+  recentTitle: {
+    color:      Colors.foreground,
+    fontSize:   13,
+    fontWeight: '600',
+    lineHeight: 17,
+    marginBottom: 4,
+  },
+  recentHost: { color: Colors.mutedFg, fontSize: 11 },
+
+  // ── Category chips ────────────────────────────────────────────────────
   chipScroll:     { marginBottom: 8, marginTop: 10 },
   chipContent:    { paddingHorizontal: 16, gap: 8 },
   chip: {
