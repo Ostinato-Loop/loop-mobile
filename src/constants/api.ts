@@ -11,12 +11,13 @@ export const ENDPOINTS = {
     signout:        `${API_BASE}/api/auth/signout`,
   },
   rooms: {
-    list:           `${API_BASE}/api/rooms`,
+    list:     `${API_BASE}/api/rooms`,
+    regional: `${API_BASE}/api/rooms/regional`,
     get:    (id: string) => `${API_BASE}/api/rooms/${id}`,
     join:   (id: string) => `${API_BASE}/api/rooms/${id}/join`,
     leave:  (id: string) => `${API_BASE}/api/rooms/${id}/leave`,
     end:    (id: string) => `${API_BASE}/api/rooms/${id}/end`,
-    create:         `${API_BASE}/api/rooms`,
+    create:   `${API_BASE}/api/rooms`,
     livekit:(id: string) => `${API_BASE}/api/rooms/${id}/livekit-token`,
   },
   notifications: {

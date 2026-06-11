@@ -1,15 +1,19 @@
 /**
  * DiscoverScreen
+ * AFRICAN-UX-001 (2026-06-11): Stack screen (back button), tab bar simplified
+ * REGION-001     (2026-06-11): Trending tab uses regional sort
+ *                              Nearby → Same State → Same Country → Rest
  *
  * Three modes controlled by the tab bar + search input:
  *
- *  DEFAULT (Trending tab, no query)
- *    • Trending tags strip — chips derived from top live rooms
- *    • Tap a tag → filters rooms to that tag (active tag shown as dismissible pill)
- *    • Room list sorted by audience_count (trending=true API param)
+ *  TRENDING tab (default, no query)
+ *    • Regional sort: rooms from the user's state first, then country, then rest
+ *    • Region context pill: "📍 Lagos · Nigeria" (dismissed on tap)
+ *    • Trending tags strip — chips derived from visible rooms
+ *    • Tap a tag → filters rooms to that tag
  *
  *  LIVE tab
- *    • live_only=true, same tag filtering
+ *    • live_only=true, same tag filtering (global sort)
  *
  *  PEOPLE tab
  *    • Suggested follows from /api/follows/suggestions
@@ -18,7 +22,8 @@
  *  SEARCH mode (query.length >= 2)
  *    • Debounced 350ms — sends search=query to API
  *    • Replaces tab content with two sections: Rooms + People
- *    • Active tab is remembered; clear query to return to it
+ *
+ * LILCKY STUDIO LIMITED
  */
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
@@ -26,21 +31,25 @@ import React, {
 import {
   View, Text, TextInput, FlatList, SectionList,
   TouchableOpacity, StyleSheet, RefreshControl,
-  ScrollView, ActivityIndicator, Animated,
+  ScrollView, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
-  Search, X, Globe2, Radio, Users,
-  TrendingUp, BadgeCheck, Hash, ArrowLeft,
+  Search, X, Radio, Users,
+  TrendingUp, BadgeCheck, Hash, ArrowLeft, MapPin,
 } from 'lucide-react-native';
 import { Colors, avatarGradient, initials } from '@/constants/colors';
 import { RoomCard } from '@/components/RoomCard';
 import { Avatar } from '@/components/Avatar';
 import { apiGet, apiPost, apiDelete } from '@/lib/api-client';
 import { ENDPOINTS } from '@/constants/api';
-import { useRooms, trendingTagsFrom, type Room } from '@/hooks/useRooms';
+import {
+  useRooms, useRegionalRooms, trendingTagsFrom,
+  formatRegionLabel,
+  type Room,
+} from '@/hooks/useRooms';
 import type { RootStackParamList } from '@/navigation';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -76,9 +85,9 @@ export default function DiscoverScreen() {
   const [query,      setQuery]      = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [activeTag,  setActiveTag]  = useState<string | null>(null);
-  const debounceRef  = useRef<ReturnType<typeof setTimeout>>();
+  const [regionDismissed, setRegionDismissed] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // Search mode when query has meaningful content
   const isSearching = debouncedQ.length >= 2;
 
   // ── Debounce ────────────────────────────────────────────────────────
@@ -89,20 +98,49 @@ export default function DiscoverScreen() {
     return () => clearTimeout(debounceRef.current);
   }, [query]);
 
-  // ── Rooms data ──────────────────────────────────────────────────────
-  const roomFilters = useMemo(() => {
-    if (isSearching)        return { search: debouncedQ, limit: 20 };
-    if (tab === 'live')     return { live_only: true, ...(activeTag ? { tags: [activeTag] } : {}) };
-    return { trending: true, ...(activeTag ? { tags: [activeTag] } : {}), limit: 30 };
+  // ── Data: trending tab → regional sort ─────────────────────────────
+  // REGION-001: regional endpoint handles auth, reads profile region,
+  // returns rooms sorted Nearby → Same State → Same Country → Rest.
+  const regionalFilters = useMemo(
+    () => ({ tags: activeTag ? [activeTag] : [] }),
+    [activeTag],
+  );
+  const {
+    rooms:     regRooms,
+    region,
+    loading:   regLoading,
+    refreshing: regRefreshing,
+    refresh:   regRefresh,
+  } = useRegionalRooms(regionalFilters);
+
+  // ── Data: live + search tabs → standard hook ────────────────────────
+  const liveOrSearchFilters = useMemo(() => {
+    if (isSearching)    return { search: debouncedQ, limit: 20 };
+    if (tab === 'live') return { live_only: true, ...(activeTag ? { tags: [activeTag] } : {}) };
+    return null;
   }, [tab, debouncedQ, isSearching, activeTag]);
 
-  const { rooms, loading, refreshing, refresh } = useRooms(roomFilters);
+  const {
+    rooms:     baseRooms,
+    loading:   baseLoading,
+    refreshing: baseRefreshing,
+    refresh:   baseRefresh,
+  } = useRooms({ ...(liveOrSearchFilters ?? {}), enabled: liveOrSearchFilters !== null });
 
-  // Trending tags derived from current room list (stable between re-renders)
-  const trendingTags = useMemo(
-    () => trendingTagsFrom(rooms, 14),
-    [rooms]
-  );
+  // ── Unify data source ────────────────────────────────────────────────
+  const usingRegional = tab === 'trending' && !isSearching;
+  const rooms      = usingRegional ? regRooms      : baseRooms;
+  const loading    = usingRegional ? regLoading    : baseLoading;
+  const refreshing = usingRegional ? regRefreshing : baseRefreshing;
+  const refresh    = usingRegional ? regRefresh    : baseRefresh;
+
+  // ── Trending tags derived from visible rooms ─────────────────────────
+  const trendingTags = useMemo(() => trendingTagsFrom(rooms, 14), [rooms]);
+
+  // ── Region label ─────────────────────────────────────────────────────
+  const regionLabel = usingRegional && !regionDismissed
+    ? formatRegionLabel(region)
+    : null;
 
   // ── People (suggestions + search) ──────────────────────────────────
   const [people,        setPeople]        = useState<Person[]>([]);
@@ -117,27 +155,23 @@ export default function DiscoverScreen() {
         : ENDPOINTS.follows.suggestions;
       const data = await apiGet<{ people: Person[] }>(url);
       setPeople(data.people ?? []);
-    } catch {
-      /* silent */
-    } finally {
-      setLoadingPeople(false);
-    }
+    } catch { /* silent */ }
+    finally { setLoadingPeople(false); }
   }, []);
 
   useEffect(() => {
     if (tab === 'people' && !isSearching) fetchPeople();
-  }, [tab, isSearching]);
+  }, [tab, isSearching, fetchPeople]);
 
   useEffect(() => {
     if (isSearching) fetchPeople(debouncedQ);
-  }, [isSearching, debouncedQ]);
+  }, [isSearching, debouncedQ, fetchPeople]);
 
   // ── Follow / Unfollow ───────────────────────────────────────────────
   const toggleFollow = useCallback(async (person: Person) => {
     setFollowLoading(prev => new Set(prev).add(person.id));
-    // Optimistic update
     setPeople(prev =>
-      prev.map(p => p.id === person.id ? { ...p, is_following: !p.is_following } : p)
+      prev.map(p => p.id === person.id ? { ...p, is_following: !p.is_following } : p),
     );
     try {
       if (person.is_following) {
@@ -146,9 +180,8 @@ export default function DiscoverScreen() {
         await apiPost(ENDPOINTS.follows.follow(person.id), {});
       }
     } catch {
-      // Revert on failure
       setPeople(prev =>
-        prev.map(p => p.id === person.id ? { ...p, is_following: !p.is_following } : p)
+        prev.map(p => p.id === person.id ? { ...p, is_following: !p.is_following } : p),
       );
     } finally {
       setFollowLoading(prev => { const s = new Set(prev); s.delete(person.id); return s; });
@@ -168,7 +201,7 @@ export default function DiscoverScreen() {
   function renderPersonItem({ item }: { item: Person }) {
     const grad    = avatarGradient(item.id);
     const ini     = initials(item.display_name);
-    const loading = followLoading.has(item.id);
+    const busy    = followLoading.has(item.id);
     return (
       <View style={styles.personCard}>
         {item.avatar_url ? (
@@ -197,10 +230,10 @@ export default function DiscoverScreen() {
         <TouchableOpacity
           style={[styles.followBtn, item.is_following && styles.followingBtn]}
           onPress={() => toggleFollow(item)}
-          disabled={loading}
+          disabled={busy}
           activeOpacity={0.8}
         >
-          {loading
+          {busy
             ? <ActivityIndicator size="small" color={item.is_following ? Colors.mutedFg : Colors.primary} />
             : <Text style={[styles.followBtnText, item.is_following && styles.followingBtnText]}>
                 {item.is_following ? 'Following' : 'Follow'}
@@ -208,6 +241,23 @@ export default function DiscoverScreen() {
           }
         </TouchableOpacity>
       </View>
+    );
+  }
+
+  // ── Region context pill (REGION-001) ────────────────────────────────
+  function RegionPill() {
+    if (!regionLabel) return null;
+    return (
+      <TouchableOpacity
+        style={styles.regionPill}
+        onPress={() => setRegionDismissed(true)}
+        activeOpacity={0.75}
+        hitSlop={8}
+      >
+        <MapPin size={11} color={Colors.primary} />
+        <Text style={styles.regionPillText}>{regionLabel}</Text>
+        <X size={11} color={Colors.mutedFg} />
+      </TouchableOpacity>
     );
   }
 
@@ -297,7 +347,7 @@ export default function DiscoverScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top + 8 }]}>
 
-      {/* Back button row (stack screen — AFRICAN-UX-001) */}
+      {/* Back button row (AFRICAN-UX-001: stack screen) */}
       <View style={styles.backRow}>
         <TouchableOpacity
           style={styles.backBtn}
@@ -343,7 +393,7 @@ export default function DiscoverScreen() {
               <TouchableOpacity
                 key={t.key}
                 style={[styles.tabBtn, active && styles.tabBtnActive]}
-                onPress={() => { setTab(t.key); setActiveTag(null); }}
+                onPress={() => { setTab(t.key); setActiveTag(null); setRegionDismissed(false); }}
                 activeOpacity={0.75}
               >
                 <t.Icon size={14} color={active ? Colors.primaryFg : Colors.mutedFg} />
@@ -373,13 +423,20 @@ export default function DiscoverScreen() {
           }
         />
       ) : (
+        /* Trending or Live tab */
         <FlatList
           data={rooms}
           keyExtractor={r => r.id}
           renderItem={renderRoomItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          ListHeaderComponent={<TagStrip />}
+          ListHeaderComponent={(
+            <>
+              {/* REGION-001: region context pill */}
+              <RegionPill />
+              <TagStrip />
+            </>
+          )}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -395,7 +452,7 @@ export default function DiscoverScreen() {
                 <View style={styles.emptyWrap}>
                   <Radio size={36} color={Colors.mutedFg} />
                   <Text style={styles.emptyTitle}>
-                    {activeTag ? `No rooms tagged #${activeTag}` : 'No rooms right now'}
+                    {activeTag ? `No rooms tagged #${activeTag}` : 'No live rooms right now'}
                   </Text>
                   {activeTag && (
                     <TouchableOpacity onPress={() => setActiveTag(null)}>
@@ -435,15 +492,37 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.border,
     minHeight: 44,
   },
-  tabBtnActive:  { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  tabLabel:      { color: Colors.mutedFg, fontSize: 13, fontWeight: '500' },
-  tabLabelActive:{ color: Colors.primaryFg, fontWeight: '700' },
+  tabBtnActive:   { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  tabLabel:       { color: Colors.mutedFg, fontSize: 13, fontWeight: '500' },
+  tabLabelActive: { color: Colors.primaryFg, fontWeight: '700' },
 
-  // Trending tag strip
+  // ── Region pill (REGION-001) ──────────────────────────────────────────
+  regionPill: {
+    flexDirection:   'row',
+    alignItems:      'center',
+    gap:             5,
+    alignSelf:       'flex-start',
+    marginHorizontal: 16,
+    marginTop:       10,
+    marginBottom:    6,
+    backgroundColor: Colors.primary + '14',
+    borderRadius:    20,
+    paddingHorizontal: 12,
+    paddingVertical:   6,
+    borderWidth:     1,
+    borderColor:     Colors.primary + '30',
+  },
+  regionPillText: {
+    color:      Colors.primary,
+    fontSize:   12,
+    fontWeight: '600',
+  },
+
+  // ── Trending tag strip ────────────────────────────────────────────────
   tagStripWrap: { paddingBottom: 14, marginBottom: 4 },
   tagStripHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 16, marginBottom: 10,
+    paddingHorizontal: 16, marginBottom: 10, marginTop: 10,
   },
   tagStripTitle: { color: Colors.mutedFg, fontSize: 12, fontWeight: '600', flex: 1 },
   clearTagBtn: {
@@ -461,15 +540,15 @@ const styles = StyleSheet.create({
   tagChipText:       { color: Colors.mutedFg, fontSize: 13, fontWeight: '500' },
   tagChipTextActive: { color: Colors.primary, fontWeight: '700' },
 
-  list:             { paddingBottom: 32 },
-  centeredSpinner:  { marginTop: 48 },
-  emptyText:        { color: Colors.mutedFg, textAlign: 'center', marginTop: 60, fontSize: 15 },
-  emptyWrap:        { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
-  emptyTitle:       { color: Colors.foreground, fontSize: 16, fontWeight: '700', marginTop: 14, textAlign: 'center' },
-  emptyBody:        { color: Colors.mutedFg, fontSize: 13, marginTop: 6, textAlign: 'center' },
-  emptyAction:      { color: Colors.primary, fontSize: 14, fontWeight: '600', marginTop: 10 },
+  list:            { paddingBottom: 32 },
+  centeredSpinner: { marginTop: 48 },
+  emptyText:       { color: Colors.mutedFg, textAlign: 'center', marginTop: 60, fontSize: 15 },
+  emptyWrap:       { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 40 },
+  emptyTitle:      { color: Colors.foreground, fontSize: 16, fontWeight: '700', marginTop: 14, textAlign: 'center' },
+  emptyBody:       { color: Colors.mutedFg, fontSize: 13, marginTop: 6, textAlign: 'center' },
+  emptyAction:     { color: Colors.primary, fontSize: 14, fontWeight: '600', marginTop: 10 },
 
-  // Search section headers
+  // ── Search section headers ────────────────────────────────────────────
   sectionHeader: {
     paddingHorizontal: 16, paddingVertical: 10,
     backgroundColor: Colors.background,
@@ -477,7 +556,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: Colors.foreground, fontSize: 14, fontWeight: '700' },
 
-  // People
+  // ── People ────────────────────────────────────────────────────────────
   personCard: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, paddingVertical: 13,
@@ -503,13 +582,10 @@ const styles = StyleSheet.create({
   followBtnText:    { color: Colors.primary, fontSize: 13, fontWeight: '700' },
   followingBtnText: { color: Colors.mutedFg },
 
-  // Back row (AFRICAN-UX-001 — now a stack screen, not a tab)
+  // ── Back row (AFRICAN-UX-001) ─────────────────────────────────────────
   backRow: {
-    flexDirection:     'row',
-    alignItems:        'center',
-    paddingHorizontal: 8,
-    paddingBottom:     8,
-    gap:               4,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 8, paddingBottom: 8, gap: 4,
   },
   backBtn:   { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   backTitle: { color: Colors.foreground, fontSize: 17, fontWeight: '700' },
