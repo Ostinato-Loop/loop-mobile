@@ -1,10 +1,15 @@
 /**
  * useRooms — room list fetching hook
+ * OFFLINE-001 (2026-06-11): offline-first caching via AsyncStorage
+ *   Pass cacheKey to enable: cached rooms surface instantly on relaunch,
+ *   network fetch runs silently in background and updates the list.
+ *
  * useRegionalRooms — REGION-001 (2026-06-11): African-First regional sort
  *
  * LILCKY STUDIO LIMITED
  */
 import { useCallback, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiGet } from '@/lib/api-client';
 import { ENDPOINTS } from '@/constants/api';
 
@@ -40,24 +45,82 @@ export type RoomFilters = {
   search?: string;
   tags?: string[];
   limit?: number;
-  /** When false, the hook skips the network fetch and returns empty state */
+  /**
+   * When false, the hook skips the network fetch and returns empty state.
+   * Used by DiscoverScreen to disable the hook when a different tab is active.
+   */
   enabled?: boolean;
+  /**
+   * OFFLINE-001: If set, the hook reads this AsyncStorage key on mount and
+   * populates rooms immediately (no skeleton), then silently refreshes from
+   * the network. Cache is written on every successful fetch.
+   *
+   * Key format recommended: 'rooms:feed:default', 'rooms:feed:community', etc.
+   */
+  cacheKey?: string;
 };
 
+// ── Cache helpers ──────────────────────────────────────────────────────────
+
+const CACHE_NS = 'loop:rooms_cache:v1:';
+
+type RoomsCache = { rooms: Room[]; cachedAt: number };
+
+async function readRoomsCache(key: string): Promise<Room[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_NS + key);
+    if (!raw) return null;
+    const { rooms } = JSON.parse(raw) as RoomsCache;
+    return Array.isArray(rooms) ? rooms : null;
+  } catch { return null; }
+}
+
+async function writeRoomsCache(key: string, rooms: Room[]): Promise<void> {
+  try {
+    const payload: RoomsCache = { rooms, cachedAt: Date.now() };
+    await AsyncStorage.setItem(CACHE_NS + key, JSON.stringify(payload));
+  } catch { /* storage quota — ignore */ }
+}
+
+// ── useRooms ──────────────────────────────────────────────────────────────
+
 export function useRooms(filters: RoomFilters = {}) {
-  const enabled = filters.enabled !== false;
+  const enabled  = filters.enabled !== false;
+  const cacheKey = filters.cacheKey;
 
   const [rooms,      setRooms]      = useState<Room[]>([]);
   const [loading,    setLoading]    = useState(enabled);
   const [error,      setError]      = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  /** True while the background network fetch is in progress after a cache hit */
+  const [stale,      setStale]      = useState(false);
 
   const filterKey = JSON.stringify(filters);
 
   const load = useCallback(async (isRefresh = false) => {
     if (!enabled) return;
-    if (isRefresh) setRefreshing(true); else setLoading(true);
+
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      // OFFLINE-001: Warm the list from cache before hitting the network.
+      // If we get a cache hit → show rooms immediately, mark as stale.
+      // If cache miss       → show skeleton as normal.
+      if (cacheKey) {
+        const cached = await readRoomsCache(cacheKey);
+        if (cached && cached.length > 0) {
+          setRooms(cached);
+          setLoading(false);
+          setStale(true);
+        }
+        // Always fall through to network fetch below.
+      } else {
+        setLoading(true);
+      }
+    }
+
     setError(null);
+
     try {
       const params = new URLSearchParams();
       if (filters.category) params.set('category', filters.category);
@@ -70,22 +133,26 @@ export function useRooms(filters: RoomFilters = {}) {
       }
       const url  = `${ENDPOINTS.rooms.list}?${params.toString()}`;
       const data = await apiGet<{ rooms: Room[] }>(url);
-      setRooms(data.rooms ?? []);
+      const fresh = data.rooms ?? [];
+      setRooms(fresh);
+      // Write cache on every successful fetch — keeps it warm for next launch.
+      if (cacheKey) writeRoomsCache(cacheKey, fresh); // fire-and-forget
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setStale(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterKey]);
 
   useEffect(() => {
     if (enabled) load();
-    else { setLoading(false); setRooms([]); }
+    else { setLoading(false); setRooms([]); setStale(false); }
   }, [load, enabled]);
 
-  return { rooms, loading, error, refreshing, refresh: () => load(true) };
+  return { rooms, loading, stale, error, refreshing, refresh: () => load(true) };
 }
 
 // ── Regional hook ──────────────────────────────────────────────────────────
@@ -119,7 +186,7 @@ export function formatRegionLabel(region: RegionContext | null): string | null {
   const { state_id, country_id } = region;
   if (!state_id && !country_id) return null;
 
-  const statePart   = state_id   ? formatState(state_id)              : null;
+  const statePart   = state_id   ? formatState(state_id)                                  : null;
   const countryPart = country_id ? (COUNTRY_NAMES[country_id.toUpperCase()] ?? country_id) : null;
 
   if (statePart && countryPart) return `${statePart} · ${countryPart}`;
@@ -129,7 +196,7 @@ export function formatRegionLabel(region: RegionContext | null): string | null {
 }
 
 export type RegionalRoomFilters = {
-  tags?: string[];
+  tags?:  string[];
   limit?: number;
 };
 
@@ -159,7 +226,7 @@ export function useRegionalRooms(filters: RegionalRoomFilters = {}) {
       }
       const url  = `${ENDPOINTS.rooms.regional}?${params.toString()}`;
       const data = await apiGet<{
-        rooms: Room[];
+        rooms:  Room[];
         region: RegionContext;
       }>(url);
       setRooms(data.rooms ?? []);

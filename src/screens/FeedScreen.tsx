@@ -2,9 +2,12 @@
  * FeedScreen — African-First edition
  * AFRICAN-UX-001 (2026-06-11): Bell removed, Search icon, skeleton loaders
  * RETENTION-001 (2026-06-11): "Continue Listening" strip for returning users
+ * OFFLINE-001   (2026-06-11): Offline-first cache — rooms show instantly on
+ *                             relaunch; network refreshes silently in background.
+ *                             Skeleton only appears on the absolute first launch
+ *                             (no cached data). Returning users never see a blank.
  *
- * Spec: "When users return, show: Continue Listening, Recent Rooms.
- *        Never show an empty screen."
+ * Spec: "Never show an empty screen."
  *
  * LILCKY STUDIO LIMITED
  */
@@ -34,6 +37,8 @@ import type { RootStackParamList } from '@/navigation';
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 // ── Skeleton loader ───────────────────────────────────────────────────────────
+// Shown only on the very first launch (no cached data + loading).
+// Returning users see cached rooms instantly instead.
 
 function SkeletonCard() {
   const opacity = useRef(new Animated.Value(0.35)).current;
@@ -67,6 +72,27 @@ function SkeletonCard() {
 
 const SKELETON_COUNT = 5;
 
+// ── Stale indicator ────────────────────────────────────────────────────────────
+// Tiny pulsing dot in the header shown while background network refresh runs.
+// Silent enough not to distract; present enough to signal freshness.
+
+function StaleDot() {
+  const opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1,   duration: 600, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 600, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
+
+  return <Animated.View style={[styles.staleDot, { opacity }]} />;
+}
+
 // ── Continue Listening strip ──────────────────────────────────────────────────
 
 const CATEGORY_EMOJI: Record<string, string> = {
@@ -76,8 +102,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
 };
 
 function RecentRoomCard({
-  room,
-  onPress,
+  room, onPress,
 }: {
   room: RecentRoom;
   onPress: (id: string) => void;
@@ -93,40 +118,29 @@ function RecentRoomCard({
       onPress={() => onPress(room.id)}
       activeOpacity={0.8}
     >
-      {/* Host avatar */}
       <LinearGradient colors={grad} style={styles.recentAvatar}>
         <Text style={styles.recentAvatarText}>{ini}</Text>
       </LinearGradient>
-
-      {/* Live indicator */}
       {room.is_live && (
         <View style={styles.recentLiveBadge}>
           <View style={styles.recentLiveDot} />
           <Text style={styles.recentLiveText}>LIVE</Text>
         </View>
       )}
-
-      {/* Category emoji */}
       <Text style={styles.recentEmoji}>{emoji}</Text>
-
-      {/* Title */}
       <Text style={styles.recentTitle} numberOfLines={2}>{room.title}</Text>
-
-      {/* Host */}
       <Text style={styles.recentHost} numberOfLines={1}>{hostName}</Text>
     </TouchableOpacity>
   );
 }
 
 function ContinueListeningStrip({
-  rooms,
-  onPress,
+  rooms, onPress,
 }: {
   rooms: RecentRoom[];
   onPress: (id: string) => void;
 }) {
   if (rooms.length === 0) return null;
-
   return (
     <View style={styles.recentSection}>
       <View style={styles.recentHeader}>
@@ -167,7 +181,16 @@ export default function FeedScreen() {
   const { user, profile } = useAuth();
 
   const [activeCategory, setActiveCategory] = useState<RoomCategory | ''>('');
-  const { rooms, loading, refreshing, refresh } = useRooms({ category: activeCategory });
+
+  // OFFLINE-001: cacheKey is per-category so each chip tab has its own cache.
+  // Cache key: 'rooms:feed:default' or 'rooms:feed:<category>'
+  const cacheKey = activeCategory ? `rooms:feed:${activeCategory}` : 'rooms:feed:default';
+
+  const { rooms, loading, stale, refreshing, refresh } = useRooms({
+    category: activeCategory,
+    cacheKey,
+  });
+
   const { recentRooms } = useRecentRooms();
 
   // ── Live listener counts ──────────────────────────────────────────────
@@ -229,13 +252,17 @@ export default function FeedScreen() {
       {/* ── Top bar ── */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <LoopLogo size={26} />
-        <TouchableOpacity
-          style={styles.searchBtn}
-          onPress={() => nav.navigate('Discover')}
-          hitSlop={8}
-        >
-          <Search size={22} color={Colors.foreground} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          {/* OFFLINE-001: stale dot — soft signal that content is refreshing */}
+          {stale && <StaleDot />}
+          <TouchableOpacity
+            style={styles.searchBtn}
+            onPress={() => nav.navigate('Discover')}
+            hitSlop={8}
+          >
+            <Search size={22} color={Colors.foreground} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* ── Continue Listening strip (RETENTION-001) ── */}
@@ -285,23 +312,27 @@ export default function FeedScreen() {
       )}
     </>
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [insets.top, online, activeCategory, rooms.length, loading, recentRooms]);
+  ), [insets.top, online, activeCategory, rooms.length, loading, stale, recentRooms]);
 
-  // ── First-load skeleton ───────────────────────────────────────────────
+  // ── First-ever launch skeleton (OFFLINE-001) ──────────────────────────
+  // Only shown when there is NO cached data AND the network hasn't responded.
+  // Returning users skip this entirely — they see cached rooms from AsyncStorage.
   if (loading && rooms.length === 0) {
     return (
       <View style={styles.root}>
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <LoopLogo size={26} />
-          <TouchableOpacity
-            style={styles.searchBtn}
-            onPress={() => nav.navigate('Discover')}
-            hitSlop={8}
-          >
-            <Search size={22} color={Colors.foreground} />
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              style={styles.searchBtn}
+              onPress={() => nav.navigate('Discover')}
+              hitSlop={8}
+            >
+              <Search size={22} color={Colors.foreground} />
+            </TouchableOpacity>
+          </View>
         </View>
-        {/* Show recent rooms even during load — they're cached locally */}
+        {/* Recent rooms cached locally — visible even before network */}
         <ContinueListeningStrip
           rooms={recentRooms}
           onPress={handleRecentRoomPress}
@@ -362,6 +393,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom:     14,
   },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+  },
+
+  // OFFLINE-001: subtle pulsing indicator when background refresh is running
+  staleDot: {
+    width:           6,
+    height:          6,
+    borderRadius:    3,
+    backgroundColor: Colors.primary,
+    marginRight:     2,
+  },
+
   searchBtn: {
     width:           40,
     height:          40,
@@ -373,10 +419,10 @@ const styles = StyleSheet.create({
 
   // ── Continue Listening (RETENTION-001) ───────────────────────────────
   recentSection: {
-    marginBottom: 4,
+    marginBottom:      4,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    paddingBottom: 14,
+    paddingBottom:     14,
   },
   recentHeader: {
     flexDirection:     'row',
@@ -387,9 +433,9 @@ const styles = StyleSheet.create({
     paddingBottom:     10,
   },
   recentHeaderText: {
-    color:       Colors.mutedFg,
-    fontSize:    12,
-    fontWeight:  '700',
+    color:         Colors.mutedFg,
+    fontSize:      12,
+    fontWeight:    '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -413,14 +459,14 @@ const styles = StyleSheet.create({
   },
   recentAvatarText: { color: Colors.primaryFg, fontSize: 14, fontWeight: '700' },
   recentLiveBadge: {
-    position:        'absolute',
-    top:             8,
-    right:           8,
-    flexDirection:   'row',
-    alignItems:      'center',
-    gap:             4,
-    backgroundColor: Colors.live + '22',
-    borderRadius:    6,
+    position:          'absolute',
+    top:               8,
+    right:             8,
+    flexDirection:     'row',
+    alignItems:        'center',
+    gap:               4,
+    backgroundColor:   Colors.live + '22',
+    borderRadius:      6,
     paddingHorizontal: 5,
     paddingVertical:   2,
   },
@@ -433,10 +479,10 @@ const styles = StyleSheet.create({
   recentLiveText:  { color: Colors.live, fontSize: 10, fontWeight: '700' },
   recentEmoji:     { fontSize: 16, marginBottom: 4 },
   recentTitle: {
-    color:      Colors.foreground,
-    fontSize:   13,
-    fontWeight: '600',
-    lineHeight: 17,
+    color:        Colors.foreground,
+    fontSize:     13,
+    fontWeight:   '600',
+    lineHeight:   17,
     marginBottom: 4,
   },
   recentHost: { color: Colors.mutedFg, fontSize: 11 },
