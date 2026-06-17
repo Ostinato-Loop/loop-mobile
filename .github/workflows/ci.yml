@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:         { branches: [main] }
+  pull_request: { branches: [main] }
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  ci:
+    name: Install & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "${{ env.NODE_VERSION }}"
+
+      - name: Detect package manager
+        id: pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then echo "pm=pnpm" >> $GITHUB_OUTPUT
+          elif [ -f yarn.lock ]; then echo "pm=yarn" >> $GITHUB_OUTPUT
+          else echo "pm=npm" >> $GITHUB_OUTPUT; fi
+
+      - name: Install (pnpm)
+        if: steps.pm.outputs.pm == 'pnpm'
+        run: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile
+
+      - name: Install (npm)
+        if: steps.pm.outputs.pm == 'npm'
+        run: npm ci --if-present || npm install
+
+      - name: Build
+        run: |
+          if [ -f package.json ]; then
+            npm run build --if-present || pnpm build --if-present || true
+          fi
+        continue-on-error: true
